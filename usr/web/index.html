@@ -1,38 +1,302 @@
 <!DOCTYPE html>
-<html>
+<html lang="ar">
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
-  <base href="$FLUTTER_BASE_HREF">
-
-  <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
-
-  <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="couldai_user_app">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
-
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
-
-  <title>couldai_user_app</title>
-  <link rel="manifest" href="manifest.json">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dash Path - داش باث</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #2c3e50;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Cairo', sans-serif;
+        }
+        canvas {
+            background-color: #34495e;
+            display: block;
+            border-radius: 10px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+    </style>
+    <!-- Adding Google Font for Arabic text -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <script src="flutter_bootstrap.js" async></script>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas dimensions
+        let canvasWidth = window.innerWidth * 0.9;
+        let canvasHeight = window.innerHeight * 0.9;
+        if (canvasWidth > 800) canvasWidth = 800;
+        if (canvasHeight > 600) canvasHeight = 600;
+        
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+
+        // Game variables
+        let player;
+        let platforms = [];
+        let obstacles = [];
+        let score = 0;
+        let highScore = localStorage.getItem('dashPathHighScore') || 0;
+        let gameSpeed = 5;
+        const initialGameSpeed = 5;
+        const gravity = 0.8;
+        let gameOver = true;
+        let keys = {};
+
+        // Player class
+        class Player {
+            constructor(x, y, radius, color) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.color = color;
+                this.velocityY = 0;
+                this.jumpForce = -15;
+                this.grounded = false;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.closePath();
+            }
+
+            update() {
+                this.velocityY += gravity;
+                this.y += this.velocityY;
+                this.grounded = false;
+
+                // Collision with platforms
+                platforms.forEach(platform => {
+                    if (this.x + this.radius > platform.x &&
+                        this.x - this.radius < platform.x + platform.width &&
+                        this.y + this.radius > platform.y &&
+                        this.y + this.radius < platform.y + 20 && // Only check top of platform
+                        this.velocityY >= 0) {
+                        this.y = platform.y - this.radius;
+                        this.velocityY = 0;
+                        this.grounded = true;
+                    }
+                });
+
+                // Check for falling out of bounds
+                if (this.y + this.radius > canvas.height) {
+                    endGame();
+                }
+
+                this.draw();
+            }
+
+            jump() {
+                if (this.grounded) {
+                    this.velocityY = this.jumpForce;
+                }
+            }
+        }
+
+        // Platform class
+        class Platform {
+            constructor(x, y, width, height, color) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.color = color;
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+
+            update() {
+                this.x -= gameSpeed;
+                this.draw();
+            }
+        }
+
+        // Obstacle class
+        class Obstacle {
+            constructor(x, y, size, color) {
+                this.x = x;
+                this.y = y;
+                this.size = size;
+                this.color = color;
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(this.x + this.size / 2, this.y - this.size);
+                ctx.lineTo(this.x + this.size, this.y);
+                ctx.fill();
+            }
+
+            update() {
+                this.x -= gameSpeed;
+                this.draw();
+            }
+        }
+        
+        function generatePlatforms() {
+            let lastPlatformX = platforms.length > 0 ? platforms[platforms.length - 1].x + platforms[platforms.length - 1].width : 0;
+            
+            while (lastPlatformX < canvas.width + 100) {
+                const minWidth = 150;
+                const maxWidth = 400;
+                const width = Math.random() * (maxWidth - minWidth) + minWidth;
+                
+                const minGap = 80;
+                const maxGap = 150;
+                const gap = Math.random() * (maxGap - minGap) + minGap;
+
+                const platformY = canvas.height - 100 + (Math.random() * 80 - 40);
+
+                platforms.push(new Platform(lastPlatformX + gap, platformY, width, 100, '#27ae60'));
+
+                // Add obstacles
+                if (Math.random() < 0.4 && width > 200) {
+                    const obstacleX = lastPlatformX + gap + (width / 2);
+                    obstacles.push(new Obstacle(obstacleX, platformY, 20, '#c0392b'));
+                }
+
+                lastPlatformX += width + gap;
+            }
+        }
+
+        function startGame() {
+            player = new Player(150, canvas.height - 200, 15, '#f1c40f');
+            platforms = [];
+            obstacles = [];
+            score = 0;
+            gameSpeed = initialGameSpeed;
+            gameOver = false;
+            
+            // Create initial platform
+            platforms.push(new Platform(0, canvas.height - 100, canvas.width + 50, 100, '#27ae60'));
+            
+            animate();
+        }
+
+        function endGame() {
+            gameOver = true;
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('dashPathHighScore', highScore);
+            }
+        }
+
+        function animate() {
+            if (gameOver) {
+                displayGameOverMenu();
+                return;
+            }
+
+            requestAnimationFrame(animate);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Update Score and Speed
+            score++;
+            gameSpeed += 0.001;
+
+            // Update platforms
+            platforms.forEach((platform, index) => {
+                platform.update();
+                if (platform.x + platform.width < 0) {
+                    platforms.splice(index, 1);
+                }
+            });
+
+            // Update obstacles
+            obstacles.forEach((obstacle, index) => {
+                obstacle.update();
+                // Collision detection with obstacles
+                const dist = Math.hypot(player.x - (obstacle.x + obstacle.size / 2), player.y - (obstacle.y - obstacle.size / 2));
+                if (dist < player.radius + obstacle.size / 2) {
+                    endGame();
+                }
+
+                if (obstacle.x + obstacle.size < 0) {
+                    obstacles.splice(index, 1);
+                }
+            });
+            
+            generatePlatforms();
+            player.update();
+
+            // Draw Score
+            drawText(`Score: ${score}`, 20, 40, 20, '#ffffff');
+            drawText(`High Score: ${highScore}`, canvas.width - 150, 40, 20, '#ffffff');
+        }
+
+        function drawText(text, x, y, size, color) {
+            ctx.fillStyle = color;
+            ctx.font = `${size}px 'Cairo', sans-serif`;
+            ctx.fillText(text, x, y);
+        }
+
+        function displayStartMenu() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawText('داش باث', canvas.width / 2 - 100, canvas.height / 2 - 80, 60, '#ffffff');
+            drawText('اضغط للقفز وتجنب العقبات', canvas.width / 2 - 150, canvas.height / 2, 24, '#bdc3c7');
+            drawText('انقر لبدء اللعب', canvas.width / 2 - 90, canvas.height / 2 + 50, 22, '#f1c40f');
+        }
+
+        function displayGameOverMenu() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            drawText('انتهت اللعبة', canvas.width / 2 - 100, canvas.height / 2 - 80, 60, '#e74c3c');
+            drawText(`النتيجة: ${score}`, canvas.width / 2 - 60, canvas.height / 2, 30, '#ffffff');
+            drawText(`أعلى نتيجة: ${highScore}`, canvas.width / 2 - 80, canvas.height / 2 + 40, 24, '#bdc3c7');
+            drawText('انقر لإعادة المحاولة', canvas.width / 2 - 110, canvas.height / 2 + 90, 22, '#f1c40f');
+        }
+
+        // Event Listeners
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                if (gameOver) {
+                    startGame();
+                } else {
+                    player.jump();
+                }
+            }
+        });
+
+        window.addEventListener('click', () => {
+            if (gameOver) {
+                startGame();
+            } else {
+                player.jump();
+            }
+        });
+        
+        window.addEventListener('touchstart', () => {
+             if (gameOver) {
+                startGame();
+            } else {
+                player.jump();
+            }
+        });
+
+
+        // Initial call
+        displayStartMenu();
+    </script>
 </body>
 </html>
